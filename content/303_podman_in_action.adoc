@@ -1,0 +1,395 @@
+=== Podman
+
+Podman is an excellent alternative to Docker containers when you need increased security, unique identifier (UID) separation using namespaces, and integration with systemd. In this article, I use real-world examples to show you how to install Podman, use its basic commands, and transition from the Docker command-line interface (CLI) to Podman. You’ll also see how to run an existing image with Podman and how to set up port forwarding.
+
+Podman is a daemonless, open source, Linux-native tool designed to develop, manage, and run Open Container Initiative (OCI) containers and pods. It has a similar directory structure to Buildah, Skopeo, and CRI-O. Podman doesn’t require an active container engine for its commands to work.
+
+The Podman approach is simply to directly interact with the image registry, with the container and image storage, and with the Linux kernel through the runC container runtime process (not a daemon).
+
+.Podman Approach
+image::../images/workshop/podman_process.png[width=40%,scalewidth=10cm,Podman Approach]
+
+ There are a few things to unpack here and we’ll get into each one separately:
+
+* You install Podman instead of Docker. You do not need to start or manage a daemon process like the Docker daemon.
+* The commands you are familiar with in Docker work the same for Podman.
+* Podman stores its containers and images in a different place than Docker.
+* Podman and Docker images are compatible.
+* Podman does more than Docker for Kubernetes environments.
+* What is Buildah and why might I need it?
+
+
+==== Rootless Podman
+
+You need to become root user to set up your RHEL system to allow non-root user accounts to use container tools: 
+
+    * Install the <<Container Tools>>
+
+    * Increase user namespaces: To increase the number of user namespaces in the kernel, type the following:
+
+```bash
+$ echo "user.max_user_namespaces=28633" > /etc/sysctl.d/userns.conf
+$ sysctl -p /etc/sysctl.d/userns.conf
+
+```
+Create a new user account: To create a new user account and add a password for that account (for example, joe), type the following:
+
+```bash
+$ useradd -c "Joe Jones" joe
+$ passwd joe
+
+```
+The user is automatically configured to be able to use rootless podman.
+
+==== Podman and container images
+
+When you first type podman images, you might be surprised that you don’t see any of the Docker images you’ve already pulled down. This is because Podman’s local repository is in /var/lib/containers instead of /var/lib/docker.  This isn’t an arbitrary change; this new storage structure is based on the Open Containers Initiative (OCI) standards.
+
+In 2015, Docker, Red Hat, CoreOS, SUSE, Google, and other leaders in the Linux containers industry created the Open Container Initiative in order to provide an independent body to manage the standard specifications for defining container images and the runtime. In order to maintain that independence, the containers/image and containers/storage projects were created on GitHub.
+
+Since you can run podman without being root, there needs to be a separate place where podman can write images. Podman uses a repository in the user’s home directory: ~/.local/share/containers. This avoids making /var/lib/containers world-writeable or other practices that might lead to potential security problems. This also ensures that every user has separate sets of containers and images and all can use Podman concurrently on the same host without stepping on each other. When users are finished with their work, they can push to a common registry to share their image with others.
+
+Docker users coming to Podman find that knowing these locations is useful for debugging and for the important rm -rf /var/lib/containers, when you just want to start over.  
+
+// However, once you start using Podman, you’ll probably start using the new -all option to podman rm and podman rmi instead.
+
+==== Podman and other runtimes
+
+Despite the new locations for the local repositories, the images created by Docker or Podman are compatible with the OCI standard. Podman can push to and pull from popular container registries like Quay.io and Docker hub, as well as private registries. For example, you can pull the latest Fedora image from the Docker hub and run it using Podman. Not specifying a registry means Podman will default to searching through registries listed in the registries.conf file, in the order in which they are listed. An unmodified registries.conf file means it will look in the Docker hub first.
+
+```bash
+$ podman pull fedora:latest
+$ podman run -it fedora bash
+```
+
+Images pushed to an image registry by Docker can be pulled down and run by Podman. For example, an image (myfedora) I created using Docker and pushed to my Quay.io repository (ipbabble) using Docker can be pulled and run with Podman  as follows:
+
+```bash
+$ podman pull quay.io/ipbabble/myfedora:latest
+$ podman run -it myfedora bash
+```
+
+Podman provides capabilities in its command-line push and pull commands to gracefully move images from /var/lib/docker to /var/lib/containers and vice versa.  For example:
+
+```bash
+$ podman push myfedora docker-daemon:myfedora:latest
+```
+
+Obviously, leaving out the docker-daemon above will default to pushing to the Docker hub.  Using quay.io/myquayid/myfedora will push the image to the Quay.io registry (where myquayid below is your personal Quay.io account):
+
+```bash
+$ podman push myfedora quay.io/myquayid/myfedora:latest
+```
+
+==== Podman helps users move to Kubernetes
+
+Podman provides some extra features that help developers and operators in Kubernetes environments. There are extra commands provided by Podman that are not available in Docker. If you are familiar with Docker and are considering using Kubernetes/OpenShift as your container platform, then Podman can help you.
+
+Podman can generate a Kubernetes YAML file based on a running container using podman generate kube. The command podman pod can be used to help debug running Kubernetes pods along with the standard container commands. 
+
+=== Registry in a container
+
+A container image registry is a service that stores container images, and is hosted either by a third-party or as a public/private registry such as Docker Hub, Quay, and so on.
+
+Our local containers configuration will be under the `/etc/containers/` directory. In this directory, we can find the registries configuration, which points by default to three differents registries:
+
+```bash
+$ egrep -v '#|^$' /etc/containers/registries.conf 
+[registries.search]
+registries = ['registry.access.redhat.com', 'registry.redhat.io', 'docker.io']
+[registries.insecure]
+registries = []
+[registries.block]
+registries = []
+unqualified-search-registries = ["registry.fedoraproject.org", "registry.access.redhat.com", "registry.centos.org", "docker.io"]
+```
+
+TIP: To test it, we will create a registry, running from a container. 
+
+* Download the registry image:
+
+```bash
+$ podman pull registry
+Completed short name "registry" with unqualified-search registries (origin: /etc/containers/registries.conf)
+Trying to pull registry.access.redhat.com/registry:latest...
+  name unknown: Repo not found
+Trying to pull registry.redhat.io/registry:latest...
+  unable to retrieve auth token: invalid username/password: unauthorized: Please login to the Red Hat Registry using your Customer Portal credentials. Further instructions can be found here: https://access.redhat.com/RegistryAuthentication
+Trying to pull docker.io/library/registry:latest...
+Getting image source signatures
+Copying blob 339e0c26c7cc skipped: already exists  
+Copying blob 6ba25693af03 skipped: already exists  
+Copying blob 9b794450f7b6 skipped: already exists  
+Copying blob 9eb68e7589ff [--------------------------------------] 0.0b / 0.0b
+Copying blob 6cf77150f665 [--------------------------------------] 0.0b / 0.0b
+Copying config ee34aa9d8a done  
+Writing manifest to image destination
+Storing signatures
+ee34aa9d8ab2cac40f256d19556838868d34bf80ad0857aa4a9501a4d1359ac6
+
+$ podman images
+REPOSITORY                                             TAG     IMAGE ID      CREATED        SIZE
+docker.io/library/registry                             latest  ee34aa9d8ab2  11 days ago    26.8 MB
+```
+* As you can see, the image has been downloaded from the first registry where it was found, __docker.io__
+
+* In order to configure the contenarized registry, I've setup a CNAME of the host, named "registry", and enabled the registry default's port. 
+
+```bash
+$ host registry
+registry.bcnconsulting.com is an alias for itxworkshop.bcnconsulting.com.
+itxworkshop.bcnconsulting.com has address 10.0.0.50
+
+$ sudo systemctl status firewalld # make sure firewalld is running
+$ sudo firewall-cmd --zone="$(sudo firewall-cmd --get-default-zone)" --add-port=5000/tcp --permanent
+$ sudo firewall-cmd --reload
+```
+
+* Now we can start the registry and check it.
+```bash
+$ podman run -dit -p 5000:5000 --name registry registry
+d50292fd273dfa633efee9067426aac66e48d4b81fa29d152ebeac46085d424c
+
+$ podman ps -a
+CONTAINER ID  IMAGE                              COMMAND               CREATED         STATUS             PORTS                   NAMES
+d50292fd273d  docker.io/library/registry:latest  /etc/docker/regis...  21 seconds ago  Up 20 seconds ago  0.0.0.0:5000->5000/tcp  registry
+
+```
+
+* To test our configuration we will download an image from another registry, tag and push it to the new contanerized registry we've just setup. 
+
+```bash
+$ podman login registry.redhat.io
+Username: rhn-support-user
+Password: 
+Login Succeeded!
+
+$ podman pull registry.access.redhat.com/rhscl/php-70-rhel7
+Trying to pull registry.access.redhat.com/rhscl/php-70-rhel7:latest...
+Getting image source signatures
+Copying blob ad46648f2433 done  
+Copying blob 9c9d2ac50b32 done  
+Copying blob 48ed3bfd8226 done  
+Copying blob 4540ba787420 done  
+Copying blob d327c1598329 done  
+Copying config 2d5706ee46 done  
+Writing manifest to image destination
+Storing signatures
+2d5706ee46457c98ea6540693b54180e80c967bc565ecb32b97b4ff0ddf96e0f
+
+$ podman tag registry.access.redhat.com/rhscl/php-70-rhel7 registry.bcnconsulting.com:5000/rhscl/php-70-rhel7
+
+$ podman push registry.bcnconsulting.com:5000/rhscl/php-70-rhel7 --tls-verify=false
+Getting image source signatures
+Copying blob 08c4aa164cba done  
+Copying blob 7c6c57a17fb3 done  
+Copying blob f1d4519df3fc done  
+Copying blob a551fb857b61 done  
+Copying blob c3b514cae9b1 done  
+Copying config 2d5706ee46 done  
+Writing manifest to image destination
+Storing signatures
+```
+=== Creating Custom Container Images
+
+
+* Create the following Dockerfile to build the image:
+
+```bash
+$ mkdir -p ~/custom-apache/src;cd ~/custom-apache
+
+$ cat << EOF  > src/index.html
+Hello Workshop RedHat!
+EOF
+
+$ cat << EOF  > Dockerfile
+FROM ubi7/ubi:7.7
+MAINTAINER silvinux <silvio@redhat.com>
+ENV PORT 8080
+RUN yum install -y httpd && \
+yum clean all
+RUN sed -ri -e "/^Listen 80/c\Listen \${PORT}" /etc/httpd/conf/httpd.conf && \
+chown -R apache:apache /etc/httpd/logs/ && \
+chown -R apache:apache /run/httpd/
+USER apache
+# Expose the custom port that you provided in the ENV var
+EXPOSE \${PORT}
+# Copy all files under src/ folder to Apache DocumentRoot (/var/www/html)
+COPY ./src/ /var/www/html/
+# Start Apache in the foreground
+CMD ["httpd", "-D", "FOREGROUND"]
+EOF
+```
+
+* Once verified, we will build the image running the command:
+
+```bash
+$ podman build -t custom-apache .
+
+...
+STEP 8: COPY ./src/ /var/www/html/
+--> 13742f8ccf0
+STEP 9: CMD ["httpd", "-D", "FOREGROUND"]
+STEP 10: COMMIT custom-apache
+--> d63ee11854b
+d63ee11854b327dfa5d01021e97bde35226b098817b3ce2680024a745250e6f4
+```
+* Verify the that the new image for the custom Apache image was created:
+
+```bash
+$ podman images
+REPOSITORY                                 TAG      IMAGE ID       CREATED          SIZE
+localhost/alpine-net                       latest   0a8e9bd5f9c7   60 minutes ago   70.2 MB
+localhost/custom-apache                    latest   d63ee11854b3   35 seconds ago   249 MB
+```
+
+* Tag and push the fresh image we've created.
+
+```bash
+$ podman tag localhost/custom-apache registry.bcnconsulting.com:5000/custom-apache
+
+$ podman push registry.bcnconsulting.com:5000/custom-apache
+Getting image source signatures
+Copying blob ac7577b8c383 done  
+Copying blob 63b3dd69ac69 done  
+Copying blob b9f9a8e6e91a done  
+Copying blob 85cc55296598 done  
+Copying blob 5601485f0109 done  
+Copying config d63ee11854 done  
+Writing manifest to image destination
+Storing signatures
+
+$ podman images
+REPOSITORY                                             TAG     IMAGE ID      CREATED         SIZE
+registry.bcnconsulting.com:5000/custom-apache       latest  d63ee11854b3  2 minutes ago   249 MB
+localhost/alpine-net                       latest   0a8e9bd5f9c7   60 minutes ago   70.2 MB
+localhost/custom-apache                    latest   d63ee11854b3    2 minutes ago   249 MB
+```
+
+* Create and run the container.
+
+```bash
+$ podman run -d --name dockerfile -p 20080:8080 registry.bcnconsulting.com:5000/custom-apache
+c9ee669d963723f8631dab763579d94ad5724b597f54eefa279cdd93087be188
+```
+
+* Verify that the server is serving the HTML file.
+
+```bash
+$ curl 127.0.0.1:20080
+Hello Workshop RedHat!
+```
+
+IMPORTANT: Remember the alpine-net image, well we can tag and push it to our registry too, because we will use it later.
+
+```bash
+$ podman tag localhost/alpine-net registry.bcnconsulting.com:5000/silvinux/alpine-net
+$ podman push registry.bcnconsulting.com:5000/silvinux/alpine-net --tls-verify=false
+```
+
+=== How would you copy images from registry A to registry B
+
+What we've seen so far to copy images is pretty symply, and it’s what most people would do:
+
+1. Pull the image from internal.registry/myimage:latest 
+2. Tag the image with production.registry/myimage:v1.0 
+3. Push to production.registry/myimage:v1.0
+
+This works reasonably well and many people are already used to doing it with the podman/docker command:
+
+```bash
+podman pull internal.registry/myimage:latest
+podman tag internal.registry/myimage:latest production.registry/myimage:v1.0
+podman push production.registry/myimage:v1.0
+```
+
+I'd like to introduce you to *Skopeo*, which is a command line tool for working with remote image registries. *Skopeo* doesn’t require a daemon to be running while performing its operations. 
+
+You can inspect images by running: 
+
+```bash
+$ skopeo inspect docker://registry.bcnconsulting.com:5000/silvinux/alpine-net --tls-verify=false
+{
+    "Name": "registry.bcnconsulting.com:5000/silvinux/alpine-net",
+    "Digest": "sha256:cca78abbcf1ebf03d422270c1323029781191090165854d5be3555004d9adc1c",
+    "RepoTags": [
+        "latest"
+    ],
+    "Created": "2021-04-26T07:55:04.912921275Z",
+    "DockerVersion": "",
+    "Labels": {
+        "io.buildah.version": "1.16.7"
+    },
+    "Architecture": "amd64",
+    "Os": "linux",
+    "Layers": [
+        "sha256:74782b667c7d97370a22aec902de10a0acbf19e545f0a770e1b7e37ab2b84774",
+        "sha256:12bebf8f15887a61e3039b5444d44b0fab08562b57b2fc57207c673fd172067f"
+    ],
+    "Env": [
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ]
+}
+```
+
+In particular, the handy skopeo command called copy will ease the whole image copy operation. Without further ado, you can copy an image from a registry to another simply by running:
+
+```bash
+$  skopeo copy  docker://registry-source/image:tag docker://registry-destination/image:tag
+```
+
+Let's try it, just copying the image we created to a public registry, in this case to my public quay.io account.
+
+TIP: It should be noted that it must be logged into the registry we will copy the image, before attempt to copy it. You can do it running the following command:
+
+```bash
+$ skopeo login quay.io
+Username: silvinux
+Password: 
+Login Succeeded!
+```
+
+```bash
+$ skopeo copy --src-tls-verify=false docker://registry.bcnconsulting.com:5000/silvinux/alpine-net:latest docker://quay.io/silvinux/alpine-net:latest 
+Getting image source signatures
+Copying blob 74782b667c7d done  
+Copying blob 7daef80e8289 done  
+Copying blob c8fe4359fca3 done  
+Copying config bcde6e76a3 done  
+Writing manifest to image destination
+Copying config bcde6e76a3 [--------------------------------------] 0.0b / 2.0KiB
+Writing manifest to image destination
+Storing signatures
+```
+
+```bash
+$ skopeo inspect docker://quay.io/silvinux/alpine-net:latest 
+{
+    "Name": "quay.io/silvinux/alpine-net",
+    "Tag": "latest",
+    "Digest": "sha256:450aefc24aaa77410854a406eb903963bf59f77ef14366c82a4cd4b9409ffd39",
+    "RepoTags": [
+        "latest"
+    ],
+    "Created": "2021-04-23T16:32:59.058654816Z",
+    "DockerVersion": "",
+    "Labels": {
+        "io.buildah.version": "1.18.0"
+    },
+    "Architecture": "amd64",
+    "Os": "linux",
+    "Layers": [
+        "sha256:74782b667c7d97370a22aec902de10a0acbf19e545f0a770e1b7e37ab2b84774",
+        "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4",
+        "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4",
+        "sha256:5f84874a4e0d2776d3516fa03b2141d1ac20a7c950930ab6041f136003e0bf0e",
+        "sha256:3fd96518a28765662bd1acf56b90cb2307d1558d4db7f0d8dcf9b9bcdabe8cf8",
+        "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4",
+        "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4",
+        "sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4"
+    ],
+    "Env": [
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ]
+}
+```

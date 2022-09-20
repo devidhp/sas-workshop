@@ -1,0 +1,139 @@
+==== Network Operators
+===== Cluster Network Operator
+
+Cluster Network Operator
+The Cluster Network Operator implements the network API from the *_operator.openshift.io_* API group. The Operator deploys the OpenShift SDN default Container Network Interface (CNI) network provider plug-in, or the default network provider plug-in that you selected during cluster installation, by using a daemon set.
+
+The Cluster Network Operator is deployed during installation as a Kubernetes Deployment.
+
+* View deployment status
+
+[source,shell]
+----
+$ oc get -n openshift-network-operator deployment/network-operator
+----
+
+[source,shell]
+----
+Example output
+
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+network-operator   1/1     1            1           56m
+----
+
+* View operator status
+
+[source,shell]
+----
+$ oc get clusteroperator/network
+----
+
+[source,shell]
+----
+Example output
+
+NAME      VERSION   AVAILABLE   PROGRESSING   DEGRADED   SINCE
+network   4.5.4     True        False         False      50m
+----
+
+The following fields provide information about the status of the operator: *_AVAILABLE_*, *_PROGRESSING_*, and *_DEGRADED_*. The *AVAILABLE* field is True when the Cluster Network Operator reports an available status condition.
+
+===== DNS Operator
+
+The DNS Operator deploys and manages CoreDNS to provide a name resolution service to pods, enabling DNS-based Kubernetes Service discovery in OpenShift
+
+The DNS Operator implements the dns API from the operator.openshift.io API group. The Operator deploys CoreDNS using a daemon set, creates a service for the daemon set, and configures the kubelet to instruct pods to use the CoreDNS service IP address for name resolution.
+
+===== DNS Forwarding
+
+You can use DNS forwarding to override the forwarding configuration identified in /etc/resolv.conf on a per-zone basis by specifying which name server should be used for a given zone. If the forwarded zone is the Ingress domain managed by OpenShift Container Platform, then the upstream name server must be authorized for the domain.
+
+Modify the DNS Operator object named default:
+
+[source,yaml]
+----
+$ oc edit dns.operator/default
+----
+
+This allows the Operator to create and update the ConfigMap named dns-default with additional server configuration blocks based on Server. If none of the servers has a zone that matches the query, then name resolution falls back to the name servers that are specified in /etc/resolv.conf.
+
+Sample DNS
+[source,yaml]
+----
+apiVersion: operator.openshift.io/v1
+kind: DNS
+metadata:
+  name: default
+spec:
+  servers:
+  - name: foo-server # <1>
+    zones: 
+      - foo.com
+    forwardPlugin:
+      upstreams: 
+        - 1.1.1.1
+        - 2.2.2.2:5353
+  - name: bar-server
+    zones:
+      - bar.com
+      - example.com
+    forwardPlugin:
+      upstreams: # <3>
+        - 3.3.3.3
+        - 4.4.4.4:5454
+----
+
+<1> name must comply with the rfc6335 service name syntax.
+<2> zones must conform to the definition of a subdomain in rfc1123. The cluster domain, cluster.local, is an invalid subdomain for zones.
+<3> A maximum of 15 upstreams is allowed per forwardPlugin.
+
+
+TIP: If servers is undefined or invalid, the ConfigMap only contains the default server.
+
+View the ConfigMap:
+
+[source,yaml]
+----
+$ oc get configmap/dns-default -n openshift-dns -o yaml
+----
+
+Sample DNS ConfigMap based on previous sample DNS
+
+[source,yaml]
+----
+apiVersion: v1
+data:
+  Corefile: |
+    foo.com:5353 {
+        forward . 1.1.1.1 2.2.2.2:5353 # <1>
+    }
+    bar.com:5353 example.com:5353 {
+        forward . 3.3.3.3 4.4.4.4:5454 
+    }
+    .:5353 {
+        errors
+        health
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+            pods insecure
+            upstream
+            fallthrough in-addr.arpa ip6.arpa
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf {
+            policy sequential
+        }
+        cache 30
+        reload
+    }
+kind: ConfigMap
+metadata:
+  labels:
+    dns.operator.openshift.io/owning-dns: default
+  name: dns-default
+  namespace: openshift-dns
+----
+
+<1> Changes to the forwardPlugin triggers a rolling update of the CoreDNS daemon set.
+
+
+

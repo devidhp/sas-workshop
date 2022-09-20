@@ -1,0 +1,295 @@
+=== Images
+ 
+NOTE: When you are in a disconnected cluster, the images must be downloaded first and upload it to a external registry. 
+
+Podman has been used to manage the images. The following images will be used:
+
+* https://catalog.redhat.com/software/containers/rhel8/postgresql-10/5ba0ae0ddd19c70b45cbf4cd[postgresql-10]
+* https://hub.docker.com/r/wkulhanek/gogs[gogs]
+    
+
+* Search and download the image.
+
+```bash
+$ podman search gogs
+$ podman pull docker.io/wkulhanek/gogs
+```
+
+NOTE: postgresql-10 image will be downloaded from Red Hat registry, which required authentication, so we will login first.
+
+```bash
+$ podman login registry.redhat.io
+  Username: {REGISTRY-SERVICE-ACCOUNT-USERNAME}
+  Password: {REGISTRY-SERVICE-ACCOUNT-PASSWORD}
+  Login Succeeded!
+
+$ podman search registry.redhat.io/rhel8/postgresql-10
+
+$ podman pull registry.redhat.io/rhel8/postgresql-10
+```
+
+* Save the image. 
+
+NOTE: You must have internet access.
+
+```bash
+$ podman save -o local_image_wkulhanek_gogs.tar docker.io/wkulhanek/gogs
+$ podman save -o local_image_.rhel8_postgresql-10.tar registry.redhat.io/rhel8/postgresql-10
+```
+
+* Copy the images previously dowloaded to the OCP disconnected infrastructure.
+
+```bash
+$ scp -i local_image_*.tar bastion:/home/ocpuser/.
+```
+
+* Login to the external registry.
+
+NOTE: Change the variable $EXTERNAL_REGISTRY accordingly.
+
+```bash
+$ EXTERNAL_REGISTRY=registry.docp4.lab.bcnconsulting.com:5000
+
+$ podman login --tls-verify=false $EXTERNAL_REGISTRY --log-level debug
+DEBU[0000] Credentials not found                        
+Username: ocp
+Password: 
+DEBU[0005] Looking TLS certificates and private keys in /etc/docker/certs.d/registry.docp4.lab.bcnconsulting.com:5000 
+DEBU[0005] GET https://registry.docp4.lab.bcnconsulting.com:5000/v2/ 
+DEBU[0005] Ping https://registry.docp4.lab.bcnconsulting.com:5000/v2/ status 401 
+DEBU[0005] GET https://registry.docp4.lab.bcnconsulting.com:5000/v2/ 
+Login Succeeded!
+```
+
+* Load image into the external registry.
+
+```bash
+$ podman load -i gogs-official.tar
+```
+
+* Tag and push the image to the external registry.
+
+```bash
+$ podman tag docker.io/wkulhanek/gogs $EXTERNAL_REGISTRY/wkulhanek/gogs
+$ podman push $EXTERNAL_REGISTRY/wkulhanek/gogs --tls-verify=false
+
+$ podman tag registry.redhat.io/rhel8/postgresql-10 $EXTERNAL_REGISTRY/rhel8/postgresql-10
+$ podman push $EXTERNAL_REGISTRY/rhel8/postgresql-10 --tls-verify=false
+
+```
+
+* Check image
+
+```bash
+$ podman search $EXTERNAL_REGISTRY/wkulhanek/gogs --tls-verify=false
+INDEX                    NAME                                                       DESCRIPTION   STARS   OFFICIAL   AUTOMATED
+bcnconsulting.com:5000   registry.docp4.lab.bcnconsulting.com:5000/wkulhanek/gogs                 0                  
+
+$ podman search  $EXTERNAL_REGISTRY/rhel8/postgresql-10 --tls-verify=false 
+INDEX                    NAME                                                            DESCRIPTION   STARS   OFFICIAL   AUTOMATED
+bcnconsulting.com:5000   registry.docp4.lab.bcnconsulting.com:5000/rhel8/postgresql-10
+```
+==== postgresql deployment
+
+IMPORTANT: It must be done first, because gogs apps will connect to it.
+
+* Create a service account to be used by the containers.
+
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/postgres/00_sa_postgres.yml[]
+EOF
+```
+
+* Create a secret to encrypt the database password.
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/postgres/01_secret_postgres.yml[] 
+EOF
+```
+
+NOTE: To encrypt / decrypt the password use base64 command.  
+
+```bash
+# Encrypt
+$  echo "gogs"| base64
+Z29ncwo=
+
+# Decrypt
+$ echo "Z29ncwo="| base64 -d
+gogs
+```
+
+* Create a service where the database will be reachable for other containers / pods.
+
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/postgres/02_svc_postgres.yml[] 
+EOF
+```
+
+* Due the application must have the data persistents, we are going to create a statefulset manifest. 
+
+TIP: The command below has been generated with env variables which should match with you registry and images names, so you must set it before execute the oc apply.
+
+```bash
+$ EXTERNAL_REGISTRY=registry.docp4.lab.bcnconsulting.com:5000
+$ POSTGRES_IMAGE=poc/postgresql-10:latest
+$ POSTGRES_STORAGE_CLASS_NAME=ocs-external-storagecluster-ceph-rbd
+```
+
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/postgres/03_statefulset_postgres.yml[] 
+EOF
+```
+
+* Verify the events and logs to determine the progess  
+
+```bash
+$ oc get events --sort-by={lastTimestamp}  -w
+$ POD_DB=$(oc get pods -lapp=workshop-postgres -o jsonpath='{range .items[*].metadata}{.name}{"\n"}{end}')
+$ oc logs -f $POD_DB 
+```
+
+* Once the pods are deployed, database access should be checked.
+
+```bash
+$ oc port-forward $POD_DB 5432:5432
+```
+
+* Open other terminal, connect with psql client.
+
+```bash
+$ psql -h127.0.0.1 -Ugogs -W
+Password for user gogs: 
+psql (10.15)
+Type "help" for help.
+
+gogs=> exit
+gogs-> \q
+```
+
+==== gogs deployment
+
+* Create a service account to be used by the containers.
+
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/gogs/00_sa_gogs.yml[]
+EOF
+```
+
+* Create a pvc to be used by the containers.
+
+TIP: The command below has been generated with env variables which should match with you registry and images names, so you must set it before execute the oc apply.
+
+```bash
+$ EXTERNAL_REGISTRY=registry.docp4.lab.bcnconsulting.com:5000
+$ GOGS_IMAGE=poc/gogs:latest
+$ GOGS_STORAGE_CLASS_NAME=ocs-external-storagecluster-cephfs
+```
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/gogs/01_pvc_gogs.yml[]
+EOF
+```
+
+
+* Create a service where the database will be reachable for other containers / pods.
+
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/gogs/02_svc_gogs.yml[] 
+EOF
+```
+
+* Create the deployment
+
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/gogs/03_deployment_gogs.yml[] 
+EOF
+```
+
+* Create a route to expose our gogs app to the world.
+
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/gogs/04_route_gogs.yml[] 
+EOF
+```
+
+* Verify the events and logs to determine the progess  
+
+```bash
+$ oc get events --sort-by={lastTimestamp}  -w
+$ POD_GOGS=$(oc get pods -lapp=gogs -o jsonpath='{range .items[*].metadata}{.name}{"\n"}{end}')
+$ oc logs $POD_GOGS
+```
+
+* Once the pods are deployed, web access should be checked.
+
+```bash
+$ oc get route
+NAME   HOST/PORT                               PATH   SERVICES   PORT       TERMINATION   WILDCARD
+gogs   gogs.apps.docp4.lab.bcnconsulting.com          gogs       3000-tcp                 None
+
+NAME                                  HOST/PORT                                                            PATH   SERVICES   PORT        TERMINATION     WILDCARD   LABELS
+route.route.openshift.io/gogs-route   gogs.apps.docp4.lab.bcnconsulting.com          gogs       http-port   edge/Redirect   None       app=workshop-gogs
+
+$ curl https://gogs.apps.docp4.lab.bcnconsulting.com
+<a href="/install">Found</a>
+```
+
+* We must configure the folloging settings through the web console.
+
+```bash
+---Config Via Web---
+    - Database Type: PostgreSQL
+    - Host: hostname-postgres:5432
+    - User: gogs
+    - Password: gogs
+    - Database Name: gogs
+    - Run User: gogs
+    - Application URL: http://gogs.docp4.lab.bcnconsulting.com
+---Config Via Web---
+```
+
+* Create a configMap to for gogs configuration.
+
+```bash
+$ POD_GOGS=$(oc get pods -lapp=workshop-gogs -o jsonpath='{range .items[*].metadata}{.name}{"\n"}{end}' --field-selector=status.phase==Running)
+
+$ APPSNAME=gogs-route-workshop-$(oc whoami)
+$ APPSSUBDOMAIN=apps.docp4.lab.bcnconsulting.com:5000
+
+$ POSTGRES_SERVICE_NAME=($oc get svc -lapp=workshop-postgres -o jsonpath='{range .items[*].metadata}{.name}{"\n"}{end}')
+
+```
+We could use **IMPERATIVE** config type
+
+```bash
+$ oc cp $POD_GOGS:/opt/gogs/custom/conf/app.ini $PWD/app.ini
+
+$ oc create configmap gogs --from-file=$PWD/app.ini
+
+$ oc set volume deployment deployment-name-gogs --add --name=config-volume -m /opt/gogs/custom/conf/ -t configmap --configmap-name=gogs
+```
+
+or  **declarative** config type, first we create the config map: 
+
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/gogs/05_configmap_gogs.yml[] 
+EOF
+``` 
+and then we update the deployment
+
+```bash
+$ cat << EOF |oc apply -f - 
+include::gogs-deployment/gogs/06_deployment_gogs_config_map.yml[] 
+EOF
+``` 
+
+

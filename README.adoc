@@ -1,0 +1,116 @@
+include::vars/render-vars.adoc[]
+include::vars/document-vars.adoc[]
+include::vars/redhat-vars.adoc[]
+include::vars/customer-vars.adoc[]
+include::content/000_vars.adoc[]
+include::locale/attributes.adoc[]
+
+= {subject}: {customer} - {description}
+
+<<<
+toc::[]
+
+<<<
+include::content/legal-approved/preface.adoc[leveloffset=+1]
+
+<<<
+== Project Information
+
+=== Originator
+include::content/010_originator.adoc[leveloffset=+3]
+
+=== Owner
+include::content/020_owner.adoc[leveloffset=+3]
+
+=== Document Conventions
+include::content/030_document-conventions.adoc[leveloffset=+3]
+
+=== Additional Copies
+include::content/040_additional-copies.adoc[leveloffset=+3]
+
+=== Participants of the Engagement
+
+==== Andes Digital
+include::content/050_red-hat-participants.adoc[leveloffset=+4]
+
+==== {customer}
+include::content/060_customer-participants.adoc[leveloffset=+4]
+
+<<<
+== Executive Summary
+include::content/070_executive-summary.adoc[leveloffset=+2]
+
+<<<
+== Overview
+
+=== About {cust}
+include::content/080_about-the-customer.adoc[leveloffset=+3]
+
+=== Purpose And Engagement Approach
+include::content/100_purpose-and-approach.adoc[leveloffset=+3]
+
+=== Scope Summary
+include::content/110_scope-summary.adoc[leveloffset=+3]
+
+<<<
+== Containers introduction
+
+=== Linux Namespaces
+include::content/301_containers-introduction.adoc[]
+
+=== Build you images
+include::content/302_build_your_images.adoc[leveloffset=+1]
+
+=== Podman in action
+include::content/303_podman_in_action.adoc[leveloffset=+1]
+
+=== Pod lifecycle
+include::content/330_pod_lifecycle.adoc[leveloffset=+1]
+
+=== Networking
+include::content/360_networking.adoc[leveloffset=+1]
+
+include::content/361_networkpolicy.adoc[leveloffset=+1]
+
+include::content/362_networkoperators.adoc[leveloffset=+1]
+
+=== RBAC
+include::content/371_rbac.adoc[leveloffset=+1]
+
+include::content/372_ldapidentity.adoc[leveloffset=+1]
+
+=== Declarative paradigm
+include::content/340_declarative_paradigm.adoc[leveloffset=+1]
+
+=== Applications deployment
+include::content/350_app_deployment.adoc[leveloffset=+1]
+
+=== Gogs Applications deployment
+include::content/400_gogs_postgres_deployment_solution.adoc[leveloffset=+1]
+
+=== Operator
+include::content/390_operator.adoc[leveloffset=+1]
+
+=== Monitoring
+include::content/380_monitoring.adoc[leveloffset=+1]
+
+<<<
+== Recommendations
+
+=== Relevant Training
+include::content/190_recommendations-relevant-training.adoc[leveloffset=+3]
+
+<<<
+[appendix]
+== Glossary
+include::content/210_glossary.adoc[leveloffset=+2]
+
+<<<
+// It is expected that anyone using additional-appendices.adoc will include one or more [appendix] blocks
+include::content/220_additional-appendices.adoc[leveloffset=+1]
+
+<<<
+include::content/legal-approved/subscriptions.adoc[leveloffset=+1]
+
+<<<
+include::content/legal-approved/support.adoc[leveloffset=+1]

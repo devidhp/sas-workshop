@@ -1,0 +1,274 @@
+In computer science, declarative programming is a programming paradigm, a style of building the structure and elements of computer programs that expresses the logic of a computation without describing its control flow. Declarative programming is often defined as any style of programming that is not imperative, in which programs describe their desired results without explicitly listing commands or steps that must be performed.
+
+* *Declarative* programming is a programming paradigm … that expresses the logic of a computation without describing its control flow.
+
+
+I want a cup of tea, obtained by pouring an infusion of tea leaves in a cup.
+An infusion is obtained by letting the object steep a few minutes in hot water.
+Hot liquid is obtained by pouring it in an appropriate container and setting it on a stove. +
+Ah, finally, containers! Something we know about. Let's get to work, shall we?
+
+
+* *Imperative* programming is a programming paradigm that uses statements that change a program’s state.
+
+1. Boil some water. 
+2. Pour it in a teapot. 
+3. Add tea leaves. 
+4. Steep for a while. 
+5. Serve in a cup.
+
+Declarative seems simpler at first ... +
+... As long as you know how to brew tea
+
+Alright here’s a metaphor:
+
+* *Declarative* Programming is like asking your friend to draw a landscape. You don’t care how they draw it, that’s up to them.
+
+* *Imperative* Programming is like your friend listening to https://en.wikipedia.org/wiki/Bob_Ross[Bob Ross] tell them how to paint a landscape. While good old Bob Ross isn’t exactly commanding, he is giving them step by step directions to get the desired result. 
+
+.Bob Ross. You can check his work in https://www.youtube.com/watch?v=lLWEXRAnQd0[Bob's videos channel]. 
+image::../images/workshop/bob_ross.png[width=40%,scalewidth=10cm, Bob Ross]
+
+ 
+So basically, there are two basic ways to deploy to Kubernetes / Openshift: imperatively, with the many kubectl commands, or declaratively, by writing manifests and using kubectl apply. 
+
+**Imperatively** is good for learning and interactive experimentation (analogous to a programming language’s https://en.wikipedia.org/wiki/Read%E2%80%93eval%E2%80%93print_loop[REPL]); **declaratively** is good for reproducible deployments, i.e., for production — though you may still use some kubectl commands for debugging in production.
+
+Let's get's our hands dirty, creating a real example.
+
+=== Imperative example
+
+
+Let's create a basic Pod with a postgres container from command line. 
+
+TIP: The command below has been generated with env variables which should match with you registry and images names, so you must set it before execute the oc apply.
+
+```bash
+$ EXTERNAL_REGISTRY=registry.docp4.lab.bcnconsulting.com:5000
+$ POSTGRES_IMAGE=poc/postgresql-10:latest
+$ GOGS_IMAGE=poc/gogs:latest
+```
+
+```bash
+$ oc run --image $EXTERNAL_REGISTRY/$POSTGRES_IMAGE --env="POSTGRESQL_USER=imperative" --env="POSTGRESQL_DATABASE=imperative" --env="POSTGRESQL_PASSWORD=imperative" --labels="app=imperative,env=workshop"  --limits='cpu=200m,memory=512Mi' --port=5432 imperative-pod 
+```
+
+As we can see, in the below output, we've created a Pod with basics parameter from command line.
+
+```bash
+$ oc get pods --show-labels
+NAME             READY   STATUS    RESTARTS   AGE   LABELS
+imperative-pod   1/1     Running   0          9s    app=imperative,env=workshop
+
+$  oc describe pod imperative-pod
+Name:         imperative-pod
+Namespace:    workshop-user1
+Priority:     0
+Node:         dworker00/10.0.113.101
+Start Time:   Fri, 16 Apr 2021 07:24:09 +0200
+Labels:       app=imperative
+              env=workshop
+Annotations:  k8s.v1.cni.cncf.io/network-status:
+                [{
+                    "name": "",
+                    "interface": "eth0",
+                    "ips": [
+                        "172.0.4.138"
+                    ],
+                    "default": true,
+                    "dns": {}
+                }]
+              k8s.v1.cni.cncf.io/networks-status:
+                [{
+                    "name": "",
+                    "interface": "eth0",
+                    "ips": [
+                        "172.0.4.138"
+                    ],
+                    "default": true,
+                    "dns": {}
+                }]
+              openshift.io/scc: anyuid
+Status:       Running
+IP:           172.0.4.138
+IPs:
+  IP:  172.0.4.138
+Containers:
+  imperative-pod:
+    Container ID:   cri-o://64cda48b31768bcafaa6a480d4f4740d6e78d26928f011ab86a02ce046956250
+    Image:          registry.docp4.lab.bcnconsulting.com:5000/rhel8/postgresql-10
+    Image ID:       registry.docp4.lab.bcnconsulting.com:5000/rhel8/postgresql-10@sha256:53ab622071e776061c831d4e97949c56e93550bcedc875d3544695c93d6067e7
+    Port:           5432/TCP
+    Host Port:      0/TCP
+    State:          Running
+      Started:      Fri, 16 Apr 2021 07:24:14 +0200
+    Ready:          True
+    Restart Count:  0
+    Limits:
+      cpu:     200m
+      memory:  512Mi
+    Requests:
+      cpu:     200m
+      memory:  512Mi
+    Environment:
+      POSTGRESQL_USER:      imperative
+      POSTGRESQL_DATABASE:  imperative
+      POSTGRESQL_PASSWORD:  imperative
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from default-token-xrdnh (ro)
+Conditions:
+  Type              Status
+  Initialized       True 
+  Ready             True 
+  ContainersReady   True 
+  PodScheduled      True 
+Volumes:
+  default-token-xrdnh:
+    Type:        Secret (a volume populated by a Secret)
+    SecretName:  default-token-xrdnh
+    Optional:    false
+QoS Class:       Guaranteed
+Node-Selectors:  <none>
+Tolerations:     node.kubernetes.io/memory-pressure:NoSchedule op=Exists
+                 node.kubernetes.io/not-ready:NoExecute op=Exists for 300s
+                 node.kubernetes.io/unreachable:NoExecute op=Exists for 300s
+Events:
+  Type    Reason          Age    From               Message
+  ----    ------          ----   ----               -------
+  Normal  Scheduled       8m53s  default-scheduler  Successfully assigned workshop-user1/imperative-pod to dworker00
+  Normal  AddedInterface  8m51s  multus             Add eth0 [172.0.4.138/24]
+  Normal  Pulling         8m49s  kubelet            Pulling image "registry.docp4.lab.bcnconsulting.com:5000/rhel8/postgresql-10"
+  Normal  Pulled          8m49s  kubelet            Successfully pulled image "registry.docp4.lab.bcnconsulting.com:5000/rhel8/postgresql-10" in 151.545567ms
+  Normal  Created         8m48s  kubelet            Created container imperative-pod
+  Normal  Started         8m48s  kubelet            Started container imperative-pod
+
+```
+
+Now let's start to working with the Pod, let's create a file with text, copy inside the container and show the file content. 
+
+```bash
+$ echo "Workshop RedHat! check text inside postgres' container" > test_from_host_to_container.txt
+
+$ oc cp test_from_host_to_container.txt imperative-pod:/var/lib/pgsql/
+
+$ oc exec imperative-pod -- cat /var/lib/pgsql/test_from_host_to_container.txt
+Workshop RedHat!
+```
+
+We can try to connect the database, to do it so, we just need to forward the database port 5432 to connect locally.
+
+```bash
+$ oc port-forward imperative-pod 5432:5432
+```
+
+IMPORTANT: To connect to the database the postgres client must be installed from the server the test will be done. To install postgres client in linux, please run the following: 
+
+```bash
+$ sudo dnf module install postgresql -y
+```
+
+TIP: If you are a windows user please take a look at https://www.heidisql.com/download.php[heidisql client], due is portable and it could be used to the following examples.
+
+Open another terminal and connect to database with the credentials we've set when we created the POD: 
+
+```bash
+$ psql -h127.0.0.1 -Uimperative -W
+Password for user gogs: 
+psql (10.15)
+Type "help" for help.
+
+gogs=> 
+
+```
+
+=== Declarative example
+
+So far we've deployed a Pod with basics capabilities, however, the power of Kubernetes is in its declarative API and controllers. You can just tell Kubernetes what you want, and it will know what to do. 
+
+So, except for the read-only get, describe and logs, the debugging port-forward, exec and cp, and delete (it’s easier to replace pods than fix them), you will rarely, if ever, use the other commands that we saw in the previous section. Most of the time, you’ll just use `kubectl apply` and YAML (or JSON) manifests of the state to be saved by Kubernetes in __etcd__.
+
+To scaffold manifests from running objects, you can simply save the output of `oc get pod -oyaml` and redirect to a file, like this:
+
+```bash
+$ oc get pod -oyaml  > declarative_postgres.yml
+```
+A manifest actually doesn’t need all of the saved states. Some of it is added by Kubernetes, like the status section and some metadata (UID, creation timestamp, etc.), but you may want to remove even more, e.g., default values. We just need enough to specify what we want.
+
+Being said that, let's change the name of the Pod, just switch the imperative by declarative. 
+
+```bash
+ $ sed -i 's/imperative/declarative/g' declarative_postgres.yml
+```
+
+Apply the configuration from the file.
+
+```bash
+ $ oc apply -f declarative_postgres.yml
+pod/declarative-pod created
+
+$ oc get pods --show-labels
+NAME              READY   STATUS    RESTARTS   AGE     LABELS
+declarative-pod   1/1     Running   0          6m53s   app=declarative,env=workshop
+imperative-pod    1/1     Running   0          8m37s   app=imperative,env=workshop
+
+```
+
+Open another terminal and connect to database with the credentials we've set when we created the POD: 
+
+```bash
+$ psql -h127.0.0.1 -Udeclarative -W
+Password for user gogs: 
+psql (10.15)
+Type "help" for help.
+
+gogs=> 
+
+```
+
+Now we can delete all pods we've created to get the differences between an imperative and declarative kubernetes configuration.
+
+```bash
+$ oc delete pod -lenv=workshop
+```
+
+
+For complex applications, with several environments, raw manifests can become difficult to manage. Tools like https://github.com/kubernetes-sigs/kustomize[kustomize] (now part of kubectl since v1.14), https://helm.sh/[Helm], or https://jsonnet.org/[Jsonnet] can help. A wonderful tool is https://github.com/redhat-cop/openshift-applier[openshift-applier] which was used to apply all objects needed in this workshop to an OpenShift Cluster. To oversee the entire build and deploy process, and inject tagged image names into manifests, https://github.com/GoogleContainerTools/skaffold[skaffold] is another useful tool.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

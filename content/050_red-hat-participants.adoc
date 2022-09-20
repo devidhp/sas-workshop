@@ -1,0 +1,26 @@
+////
+Purpose
+-------
+This section should contain a minimal list of Andes Digital associates who directly
+participated. A good rule of thumb is to restrict the list to associates who
+applied billable hours to the project in conjunction with this engagement.  A
+typical list should include the delivery consultant(s), the project manager,
+and the architect (if present and/or billing).  Also include the TSM if the TSM
+was actively involved (i.e. attending status calls, escalations etc...)
+////
+.Andes Digital Participants
+[cols="3,4,5",options=header]
+|===
+|Name
+|Role
+|E-mail address
+
+// Name
+| Tomás Olivares
+// Role
+| Cloud Consultant
+// Email Address
+| tomas@andesdigital.com
+
+
+|===

@@ -1,0 +1,21 @@
+// --------------------------------
+// Document Information
+// The customer-vars.adoc is meant for customer specific information such as the name,
+// short name, and gss information
+// --------------------------------
+:toc-title: Table of Contents
+
+:description: Openshift 4 Deep Dive
+
+:customer: SAS
+:cust: sas
+
+:projectmanager: None
+
+// these are required for the support chapter.
+:custgss: TODO_customer_portal_account_name
+:nogss: TODO_customer_portal_account_number
+
+// --------------------------------
+// Other Vars
+// --------------------------------

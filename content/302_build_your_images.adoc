@@ -1,0 +1,342 @@
+=== Building Base Containers
+
+A Dockerfile is a mechanism to automate the building of container images. Building an image
+from a Dockerfile is a three-step process:
+
+1. Create a working directory
+2. Write the Dockerfile
+3. Build the image with Podman
+
+=== Create a Working Directory
+
+The working directory is the directory containing all files needed to build the image. Creating an
+empty working directory is good practice to avoid incorporating unnecessary files into the image.
+For security reasons, the root directory `/` should never be used as a working directory for image
+builds.
+
+=== Write the Dockerfile Specification
+
+A Dockerfile is a text file that must exist in the working directory. This file contains the
+instructions needed to build the image. The basic syntax of a Dockerfile follows:
+
+```bash
+# Comment
+INSTRUCTION arguments
+```
+
+
+Lines that begin with a hash, or pound, symbol (#) are comments. INSTRUCTION states for any
+Dockerfile instruction keyword. Instructions are not case-sensitive, but the convention is to make
+instructions all uppercase to improve visibility.
+
+The first non-comment instruction must be a FROM instruction to specify the base image.
+Dockerfile instructions are executed into a new container using this image and then committed to
+a new image. The next instruction (if any) executes into that new image. The execution order of
+instructions is the order of their appearance in the Dockerfile.
+
+NOTE: The ARG instruction can appear before the FROM instruction, but ARG instructions
+are outside the objectives for this section.
+
+Each Dockerfile instruction runs in an independent container using an intermediate image built
+from every previous command. This means each instruction is independent from other instructions
+in the Dockerfile.
+
+The following is an example Dockerfile for building a simple Apache web server container:
+
+```bash
+1 # This is a comment line
+2 FROM ubi7/ubi:7.7
+3 LABEL description="This is a custom httpd container image"
+4 MAINTAINER John Doe <jdoe@xyz.com>
+5 RUN yum install -y httpd
+6 EXPOSE 80
+7 ENV LogLevel "info"
+8 ADD http://someserver.com/filename.pdf /var/www/html
+9 COPY ./src/ /var/www/html/
+10 USER apache
+11 ENTRYPOINT ["/usr/sbin/httpd"]
+CMD ["-D", "FOREGROUND"]
+```
+
+1. Lines that begin with a hash, or pound, sign (#) are comments.
+
+2. The **FROM** instruction declares that the new container image extends ubi7/ubi:7.7
+container base image. Dockerfiles can use any other container image as a base image, not
+only images from operating system distributions. Red Hat provides a set of container images
+that are certified and tested and highly recommends using these container images as a base.
+
+3. The **LABEL** is responsible for adding generic metadata to an image. A LABEL is a simple key-
+value pair.
+
+4. **MAINTAINER** indicates the Author field of the generated container image's metadata. You
+can use the podman inspect command to view image metadata.
+
+5. **RUN** executes commands in a new layer on top of the current image. The shell that is used to
+execute commands is /bin/sh.
+
+6. **EXPOSE** indicates that the container listens on the specified network port at runtime. The
+EXPOSE instruction defines metadata only; it does not make ports accessible from the host.
+The -p option in the podman run command exposes container ports from the host.
+
+7. **ENV** is responsible for defining environment variables that are available in the container. You
+can declare multiple ENV instructions within the Dockerfile. You can use the env command
+inside the container to view each of the environment variables.
+
+8. **ADD** instruction copies files or folders from a local or remote source and adds them to the
+container's file system. If used to copy local files, those must be in the working directory. ADD
+instruction unpacks local .tar files to the destination image directory.
+
+9. **COPY** copies files from the working directory and adds them to the container's file system. It
+is not possible to copy a remote file using its URL with this Dockerfile instruction.
+
+10. **USER** specifies the username or the UID to use when running the container image for the
+RUN, CMD, and ENTRYPOINT instructions. It is a good practice to define a different user other
+than root for security reasons.
+
+11. **ENTRYPOINT** specifies the default command to execute when the image runs in a container.
+If omitted, the default ENTRYPOINT is /bin/sh -c.
+
+12. **CMD** provides the default arguments for the ENTRYPOINT instruction. If the default
+ENTRYPOINT applies (/bin/sh -c), then CMD forms an executable command and
+parameters that run at container start.
+
+
+=== Layering Image
+
+Containers are building blocks for applications. Each container is an image with a readable/writeable layer on top of a bunch of read-only layers.
+
+These layers (also called intermediate images) are generated when the commands in the Dockerfile are executed during the Docker image build.
+
+TIP: Basically, a layer, or image layer is a change on an image, or an intermediate image. Every command you specify (FROM, RUN, COPY, etc.) in your Dockerfile causes the previous image to change, thus creating a new layer. You can think of it as staging changes when you're using git.
+
+The layers have some advantages. First, they are immutable. Once created, that layer identified by a sha256 hash will never change. That immutability allows images to safely build and fork off of each other. If two dockerfiles have the same initial set of lines, and are built on the same server, they will share the same set of initial layers, saving disk space. That also means if you rebuild an image, with just the last few lines of the Dockerfile experiencing changes, only those layers need to be rebuilt and the rest can be reused from the layer cache. This can make a rebuild of docker images very fast.
+
+Inside a container, you see the image filesystem, but that filesystem is not copied. On top of those image layers, the container mounts it's own read-write filesystem layer. Every read of a file goes down through the layers until it hits a layer that has marked the file for deletion, has a copy of the file in that layer, or the read runs out of layers to search through. Every write makes a modification in the container specific read-write layer.
+
+One downside of the layers is building images that duplicate files or ship files that are deleted in a later layer. Each instruction in a Dockerfile creates a new image layer. Having too many instructions in
+a Dockerfile causes too many layers, resulting in large images. For example, consider the
+following RUN instructions in a Dockerfile:
+
+```bash
+RUN yum --disablerepo=* --enablerepo="rhel-7-server-rpms"
+RUN yum update -y
+RUN yum install -y httpd
+```
+
+The previous example is not a good practice when creating container images. It creates three
+layers (one for each RUN instruction) while only the last is meaningful. Red Hat recommends
+minimizing the number of layers. You can achieve the same objective while creating a single layer
+by using the && conjunction:
+
+```bash
+RUN yum --disablerepo=* --enablerepo="rhel-7-server-rpms" && yum update -y && yum
+install -y httpd
+```
+
+The problem with this approach is that the readability of the Dockerfile decays. Use the \
+escape code to insert line breaks and improve readability. You can also indent lines to align the
+commands:
+
+```bash
+RUN yum --disablerepo=* --enablerepo="rhel-7-server-rpms" && \
+yum update -y && \
+yum install -y httpd
+```
+
+This example creates only one layer, and the readability improves. RUN, COPY, and ADD instructions
+create new image layers, but RUN can be improved this way.
+
+Red Hat recommends applying similar formatting rules to other instructions accepting multiple
+parameters, such as LABEL and ENV:
+
+```bash
+LABEL version="2.0" \
+description="This is an example container image" \
+creationDate="01-09-2017"
+
+ENV MYSQL_ROOT_PASSWORD="my_password" \
+MYSQL_DATABASE "my_database"
+```
+
+Being said that, we can create a similar image we used at the <<Container File Systems (a.k.a rootfs)>> section.
+
+Now we can talk about *buildah*. With the buildah command, you can create a new image from a Dockerfile. The following steps show how to build an image that includes some basics network packages that will be available  when the image is run.
+
+==== Does Podman not do builds?
+
+Podman does do builds and for those familiar with Docker, the build process is the same. You can either build using a Dockerfile using podman build or you can run a container and make lots of changes and then commit those changes to a new image tag. Buildah can be described as a superset of commands related to creating and managing container images and, therefore, it has much finer-grained control over images. Podman’s build command contains a subset of the Buildah functionality. It uses the same code as Buildah for building.
+
+The most powerful way to use Buildah is to write Bash scripts for creating your images—in a similar way that you would write a Dockerfile.
+
+There are a couple of extra things practitioners need to understand about Buildah:
+
+* It allows for finer control of creating image layers. This is a feature that many container users have been asking for for a long time. Committing many changes to a single layer is desirable.
+
+* Buildah’s run command is not the same as Podman’s run command.  Because Buildah is for building images, the run command is essentially the same as the Dockerfile RUN command. In fact, I remember the week this was made explicit. I was foolishly complaining that some port or mount that I was trying wasn’t working as I expected it to.  Dan (@rhatdan ) weighed in and said that Buildah should not be supporting running containers in that way. No port mapping. No volume mounting. Those flags were removed.  Instead buildah run is for running specific commands in order to help build a container image, for example, buildah run dnf -y install nginx.
+
+* Buildah can build images from scratch, that is, images with nothing in them at all. Nothing. In fact, looking at the container storage created as a result of a buildah from scratch command yields an empty directory. This is useful for creating very lightweight images that contain only the packages needed in order to run your application.
+
+
+Create a directory to create our new fresh image.
+
+```bash
+$ mkdir -p ~/custom-apline-net/src;cd ~/custom-apline-net
+```
+
+This simple example starts creating a directory with one file: *Dockerfile*, which holds the instructions for building the container image:
+
+```bash
+$ cat << EOF  > Dockerfile
+# Alpine-net
+# Alpine image with network tools
+FROM alpine:latest
+MAINTAINER tolivares <tomas@andesdigital.com>
+
+# non-root tools
+RUN apk --update add bash conntrack-tools coreutils curl drill \
+iperf3 iproute2 iptables iputils ip6tables keepalived net-tools \
+nftables socat ethtool mtr tcpdump busybox-extras && rm -rf /var/cache/apk/*
+
+RUN adduser -D -u 1000 container
+
+USER container
+
+WORKDIR /home/container
+EOF
+```
+
+Let's use *buildah* to build our new image.
+
+```bash
+$ buildah bud -t alpine-net .
+STEP 1: FROM alpine:latest
+STEP 2: MAINTAINER tolivares <tomas@andesdigital.com>
+STEP 3: RUN apk --update add bash python3 conntrack-tools coreutils curl drill iperf3 iproute2 iptables iputils ip6tables keepalived net-tools nftables socat ethtool mtr tcpdump busybox-extras && rm -rf /var/cache/apk/*
+fetch https://dl-cdn.alpinelinux.org/alpine/v3.13/main/x86_64/APKINDEX.tar.gz
+fetch https://dl-cdn.alpinelinux.org/alpine/v3.13/community/x86_64/APKINDEX.tar.gz
+(1/57) Installing ncurses-terminfo-base (6.2_p20210109-r0)
+(2/57) Installing bash (5.1.0-r0)
+...
+(56/57) Installing python3 (3.8.8-r0)
+(57/57) Installing tcpdump (4.99.0-r0)
+Executing busybox-1.32.1-r6.trigger
+Executing ca-certificates-20191127-r5.trigger
+OK: 72 MiB in 71 packages
+STEP 4: RUN adduser -D -u 1000 container
+STEP 5: USER container
+STEP 6: WORKDIR /home/container
+STEP 7: CMD ["/bin/sh"]
+STEP 8: COMMIT alpine-net
+Getting image source signatures
+Copying blob b2d5eeeaba3a skipped: already exists
+Copying blob 200e3c5139a6 done
+Copying config 0a8e9bd5f9 done
+Writing manifest to image destination
+Storing signatures
+--> 0a8e9bd5f9c
+0a8e9bd5f9c7f9aa577d09a2220c7996946f02a5411737eaf819582d9ddab85f
+```
+
+Shown below, when you build the container from the above Dockerfile, each step corresponds to a command run in the Dockerfile. And each layer is made up of the file generated from running that command. Along with each step, the layer created is listed represented by its random generated ID.
+
+The *buildah* __bud__ command creates a new image named alpine-net. To see that new image, type:
+
+```bash
+$ buildah images
+REPOSITORY                                           TAG      IMAGE ID       CREATED         SIZE
+localhost/alpine-net                                 latest   0a8e9bd5f9c7   2 minutes ago   70.2 MB
+```
+
+Once the image is built, you can view all the layers that make up the image. With buildah inspect, you can show information about a container or image.
+
+For example, to inspect the alpine-net image and get some of the parameter we instructed into the Dockerfile just type:
+
+```bash
+$ buildah inspect localhost/alpine-net |jq '.OCIv1|{author,config,rootfs}'
+{
+  "author": "tolivares <tomas@andesdigital.com>",
+  "config": {
+    "User": "container",
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ],
+    "Cmd": [
+      "/bin/sh"
+    ],
+    "WorkingDir": "/home/container",
+    "Labels": {
+      "io.buildah.version": "1.16.7"
+    }
+  },
+  "rootfs": {
+    "type": "layers",
+    "diff_ids": [
+      "sha256:b2d5eeeaba3a22b9b8aa97261957974a6bd65274ebd43e1d81d0a7b8b752b116",
+      "sha256:200e3c5139a6138f1ea1e1ead0a2c5533b0e850bdcfc29542f233da78d583694"
+    ]
+  }
+}
+```
+Or we can get the history into the image specs:
+
+```bash
+$ buildah inspect localhost/alpine-net |jq '.OCIv1|{history}'
+{
+  "history": [
+    {
+      "created": "2021-04-14T19:19:39.267885491Z",
+      "created_by": "/bin/sh -c #(nop) ADD file:8ec69d882e7f29f0652d537557160e638168550f738d0d49f90a7ef96bf31787 in / "
+    },
+    {
+      "created": "2021-04-14T19:19:39.643236135Z",
+      "created_by": "/bin/sh -c #(nop)  CMD [\"/bin/sh\"]",
+      "empty_layer": true
+    },
+    {
+      "created": "2021-04-26T09:54:58.71236958+02:00",
+      "created_by": "/bin/sh -c #(nop) MAINTAINER tolivares <tomas@andesdigital.com>",
+      "empty_layer": true
+    },
+    {
+      "created": "2021-04-26T09:55:04.099253709+02:00",
+      "created_by": "/bin/sh -c apk --update add bash python3 conntrack-tools coreutils curl drill iperf3 iproute2 iptables iputils ip6tables keepalived net-tools nftables socat ethtool mtr tcpdump busybox-extras && rm -rf /var/cache/apk/*",
+      "empty_layer": true
+    },
+    {
+      "created": "2021-04-26T09:55:04.836110836+02:00",
+      "created_by": "/bin/sh -c adduser -D -u 1000 container",
+      "empty_layer": true
+    },
+    {
+      "created": "2021-04-26T09:55:04.836200647+02:00",
+      "created_by": "/bin/sh -c #(nop) USER container",
+      "empty_layer": true
+    },
+    {
+      "created": "2021-04-26T09:55:04.875270012+02:00",
+      "created_by": "/bin/sh -c #(nop) WORKDIR /home/container",
+      "empty_layer": true
+    },
+    {
+      "created": "2021-04-26T07:55:06.551500255Z",
+      "created_by": "/bin/sh -c #(nop) CMD [\"/bin/sh\"]",
+      "author": "tolivares <tomas@andesdigital.com>"
+    }
+  ]
+}
+```
+
+TIP:  The image layer can be viewed with the podman history command. The “Image” column (i.e intermediate image or layer) shows the randomly generated UUID that correlates to that layer.
+
+```bash
+$ podman history --no-trunc  localhost/alpine-net
+ID                                                                CREATED         CREATED BY                                     SIZE     COMMENT
+0a8e9bd5f9c7f9aa577d09a2220c7996946f02a5411737eaf819582d9ddab85f  46 minutes ago  /bin/sh -c #(nop) CMD ["/bin/sh"]              64.4 MB
+6dbb9cc54074106d46d4ccb330f2a40a682d49dda5f4844962b7dce9fe44aaec  46 minutes ago  /bin/sh -c #(nop) WORKDIR /home/container      0 B
+<missing>                                                         46 minutes ago  /bin/sh -c #(nop) USER container               0 B
+<missing>                                                         46 minutes ago  /bin/sh -c adduser -D -u 1000 container        0 B
+<missing>                                                         46 minutes ago  /bin/sh -c apk --update add bash python3 c...  0 B
+<missing>                                                         46 minutes ago  /bin/sh -c #(nop) MAINTAINER tolivares <sil...  0 B
+<missing>                                                         11 days ago     /bin/sh -c #(nop)  CMD ["/bin/sh"]             0 B
+<missing>                                                         11 days ago     /bin/sh -c #(nop) ADD file:8ec69d882e7f29f...  5.88 MB
+```

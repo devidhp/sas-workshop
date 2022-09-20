@@ -1,0 +1,133 @@
+=== About LDAP Authentication
+
+During authentication, the LDAP directory is searched for an entry that matches the provided user name. If a single unique match is found, a simple bind is attempted using the distinguished name (DN) of the entry plus the provided password.
+
+These are the steps taken:
+
+. Generate a search filter by combining the attribute and filter in the configured url with the user-provided user name.
+
+. Search the directory using the generated filter. If the search does not return exactly one entry, deny access.
+
+. Attempt to bind to the LDAP server using the DN of the entry retrieved from the search, and the user-provided password.
+
+. If the bind is unsuccessful, deny access.
+
+. If the bind is successful, build an identity using the configured attributes as the identity, email address, display name, and preferred user name.
+
+The configured url is an RFC 2255 URL, which specifies the LDAP host and search parameters to use. The syntax of the URL is:
+
+[source,shell]
+----
+ldap://host:port/basedn?attribute?scope?filter
+----
+
+For this URL:
+
+[colors=2*]
+|====
+|URL component|Description
+|ldap|For regular LDAP, use the string ldap. For secure LDAP (LDAPS), use ldaps instead.
+
+|host:port|The name and port of the LDAP server. Defaults to localhost:389 for ldap and localhost:636 for LDAPS.
+
+|basedn|The DN of the branch of the directory where all searches should start from. At the very least, this must be the top of your directory tree, but it could also specify a subtree in the directory.
+
+|attribute|The attribute to search for. Although RFC 2255 allows a comma-separated list of attributes, only the first attribute will be used, no matter how many are provided. If no attributes are provided, the default is to use uid. It is recommended to choose an attribute that will be unique across all entries in the subtree you will be using.
+
+|scope|The scope of the search. Can be either one or sub. If the scope is not provided, the default is to use a scope of sub.
+
+|filter|A valid LDAP search filter. If not provided, defaults to (objectClass=*)
+|====
+
+When doing searches, the attribute, filter, and provided user name are combined to create a search filter that looks like:
+
+[source,shell]
+----
+(&(<filter>)(<attribute>=<username>))
+----
+
+For example, consider a URL of:
+
+[source,shell]
+----
+ldap://ldap.example.com/o=Acme?cn?sub?(enabled=true)
+----
+
+When a client attempts to connect using a user name of bob, the resulting search filter will be _(&(enabled=true)(cn=bob))_.
+
+If the LDAP directory requires authentication to search, specify a _bindDN_ and _bindPassword_ to use to perform the entry search.
+
+=== Adding an identity provider to your clusters
+
+After you install your cluster, add an identity provider to it so your users can authenticate.
+
+Create LDAP CR file
+
+The following custom resource (CR) shows the parameters and acceptable values for an LDAP identity provider.
+
+LDAP CR
+
+```yaml
+apiVersion: config.openshift.io/v1
+kind: OAuth
+metadata:
+  name: cluster
+spec:
+  identityProviders:
+  - name: ldapidp  # <1>
+    mappingMethod: claim  # <2>
+    type: LDAP
+    ldap:
+      attributes:
+        id: # <3>
+        - dn
+        email:   # <4>
+        - mail
+        name: # <5>
+        - cn
+        preferredUsername: # <6>
+        - uid
+      bindDN: "" # <7>
+      bindPassword: # <8>
+        name: ldap-secret
+      ca: # <9>              
+        name: ca-config-map
+      insecure: false # <10>
+      url: "ldap://ldap.example.com/ou=users,dc=acme,dc=com?uid" # <11>
+```
+
+<1> This provider name is prefixed to the returned user ID to form an identity name.
+<2> Controls how mappings are established between this provider’s identities and User objects.
+<3> List of attributes to use as the identity. First non-empty attribute is used. At least one attribute is required. If none of the listed attribute have a value, authentication fails. Defined attributes are retrieved as raw, allowing for binary values to be used.
+<4> List of attributes to use as the email address. First non-empty attribute is used.
+<5> List of attributes to use as the display name. First non-empty attribute is used.
+<6> List of attributes to use as the preferred user name when provisioning a user for this identity. First non-empty attribute is used.
+<7> Optional DN to use to bind during the search phase. Must be set if bindPassword is defined.
+<8> Optional reference to an OpenShift Container Platform Secret object containing the bind password. Must be set if bindDN is defined.
+<9> Optional: Reference to an OpenShift Container Platform ConfigMap object containing the PEM-encoded certificate authority bundle to use in validating server certificates for the configured URL. Only used when insecure is false.
+<10> When true, no TLS connection is made to the server. When false, ldaps:// URLs connect using TLS, and ldap:// URLs are upgraded to TLS. This must be set to false when ldaps:// URLs are in use, as these URLs always attempt to connect using TLS.
+<11> An RFC 2255 URL which specifies the LDAP host and search parameters to use.
+
+NOTE: To whitelist users for an LDAP integration, use the lookup mapping method. Before a login from LDAP would be allowed, a cluster administrator must create an Identity object and a User object for each LDAP user.
+
+
+Apply the defined CR:
+
+[source,yaml]
+----
+$ oc apply -f </path/to/CR>
+----
+
+If a CR does not exist, oc apply creates a new CR and might trigger the following warning: Warning: oc apply should be used on resources created by either oc create --save-config or oc apply. In this case you can safely ignore this warning.
+
+Log in to the cluster as a user from your identity provider, entering the password when prompted.
+
+```bash
+$ oc login -u <username>
+```
+
+Confirm that the user logged in successfully, and display the user name.
+
+```bash
+$ oc whoami
+```
